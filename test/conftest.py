@@ -4,10 +4,10 @@ import eater.part
 
 
 @pytest.fixture()
-def vcc_rail() -> eater.part.Wire:
-    return eater.part.Wire(True)
+def vcc_rail() -> eater.part.Junction:
+    return eater.part.Junction(True)
 
 
 @pytest.fixture()
-def gnd_rail() -> eater.part.Wire:
-    return eater.part.Wire(False)
+def gnd_rail() -> eater.part.Junction:
+    return eater.part.Junction(False)

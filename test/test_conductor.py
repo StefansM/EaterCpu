@@ -11,13 +11,9 @@ import eater.part
         # Simple cases with a single conductor.
         ([True], True, False),
         ([False], False, False),
-        ([None], None, False),
         # Multiple conductors merge together.
         ([True, True, True], True, False),
         ([False, False, False], False, False),
-        # High impedance line does not affect result
-        ([False, False, None], False, False),
-        ([True, True, None], True, False),
         # Mismatched levels raise exception
         ([False, True], None, True),
         ([True, False], None, True),
@@ -25,8 +21,10 @@ import eater.part
 )
 def test_pin_combines_values(conductor_values: List[Optional[bool]], expected: Optional[bool], raises: bool):
     """Logic levels on pin propagate to connected conductors."""
-    conductors = [eater.part.Wire(v) for v in conductor_values]
-    pin = eater.part.Junction(conductors)
+    pin = eater.part.Junction()
+    voltage_sources = [eater.part.VoltageSource(v) for v in conductor_values]
+    for vs in voltage_sources:
+        pin.set(vs)
 
     if raises:
         with pytest.raises(ValueError):
@@ -37,20 +35,29 @@ def test_pin_combines_values(conductor_values: List[Optional[bool]], expected: O
 
 
 def test_pin_sets_values():
-    """Values set on pin propagate to connected conductors."""
-    conductors = [eater.part.Wire() for _ in range(3)]
-    pin = eater.part.Junction(conductors)
+    """Voltage source is reflected in pin state."""
+    pin = eater.part.Junction()
 
     assert pin.state is None
 
-    pin.state = True
-    for conductor in conductors:
-        assert conductor.state
+    voltage_source = eater.part.VoltageSource(True)
+    pin.set(voltage_source)
+    assert pin.state
 
-    pin.state = False
-    for conductor in conductors:
-        assert not conductor.state
+    voltage_source.value = False
+    pin.set(voltage_source)
+    assert not pin.state
 
-    pin.state = None
-    for conductor in conductors:
-        assert conductor.state is None
+    pin.clear(voltage_source)
+    assert pin.state is None
+
+
+def test_conductor_sets_values():
+    """Values on connected conductors propagate to connected pins."""
+
+    input_wire = eater.part.Junction()
+    output_wire = eater.part.Junction([input_wire])
+
+    input_wire.set(eater.part.VoltageSource(True))
+    assert output_wire.state
+
