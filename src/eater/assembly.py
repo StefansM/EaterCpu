@@ -115,7 +115,7 @@ class InstructionRegister:
             vcc: eater.part.Junction, gnd: eater.part.Junction,
             clr: eater.part.Junction, clk: eater.part.Junction,
             instruction_in: eater.part.Junction, instruction_out: eater.part.Junction,
-            instrucon_bus: eater.part.Bus, bus: eater.part.Bus):
+            instruction_bus: eater.part.Bus, bus: eater.part.Bus):
 
         self.gnd = gnd
         self.vcc = vcc
@@ -125,12 +125,11 @@ class InstructionRegister:
         self.instruction_in = instruction_in
         self.instruction_out = instruction_out
         self.bus = bus
-        self.instruction_bus = instrucon_bus
+        self.instruction_bus = instruction_bus
 
         self.high_register = eater.part.FourBitDRegister()
         self.low_register = eater.part.FourBitDRegister()
         self.trans = eater.part.OctalBusTransceiver()
-        self.register_bus = eater.part.Bus([eater.part.Junction() for _ in range(8)])
 
         connect_power(vcc, gnd, self.high_register)
         connect_power(vcc, gnd, self.low_register)
@@ -139,12 +138,16 @@ class InstructionRegister:
         self._connect_low_register_input()
         self._connect_low_register_output()
         self._connect_high_register_input()
-        self._connect_high_register_output()
         self._connect_control_lines_to_register(self.low_register)
         self._connect_control_lines_to_register(self.high_register)
         self._connect_control_lines_to_transceiver()
         self._connect_bus_output()
         self._connect_instruction_bus()
+
+    def __str__(self):
+        instruction = "".join([eater.part._bit_str(bit) for bit in self.instruction_bus.value])
+        bus = "".join([eater.part._bit_str(out.state) for _, out, _ in self.low_register.lines])
+        return f"InstructionRegister(instruction={instruction}, bus={bus})"
 
     def _connect_instruction_bus(self):
         for bus_line, (_, output_pin, _) in zip(self.instruction_bus.conductors, self.high_register.lines):
@@ -175,12 +178,6 @@ class InstructionRegister:
         self.low_register.Q2.conductors.append(self.trans.A6)
         self.low_register.Q3.conductors.append(self.trans.A7)
         self.low_register.Q4.conductors.append(self.trans.A8)
-
-    def _connect_high_register_output(self):
-        self.high_register.Q1.conductors.append(self.register_bus.conductors[3])
-        self.high_register.Q2.conductors.append(self.register_bus.conductors[2])
-        self.high_register.Q3.conductors.append(self.register_bus.conductors[1])
-        self.high_register.Q4.conductors.append(self.register_bus.conductors[0])
 
     def _connect_bus_output(self):
         trans_out = [
@@ -482,28 +479,33 @@ class Control:
     OUT
     """
 
-    def do_clock(self):
-        self.clk.on()
-        self.not_clk.off()
-
+    def eval_all(self):
         self.pc.evaluate()
         self.ram.evaluate()
         self.instruction_register.evaluate()
+        self.alu.evaluate()
         self.register_a.evaluate()
         self.register_b.evaluate()
-        self.alu.evaluate()
         self.output.evaluate()
+
+    def do_clock(self, num_times=2):
+        """
+        It can take multiple evaluation for values to propagate all the way through, but some operations
+        (incrementing the program counter) must only be evaluated once.
+
+        This is solvable, but for now we'll just brute force it.
+        """
+        self.clk.on()
+        self.not_clk.off()
+
+        for _ in range(num_times):
+            self.eval_all()
 
         self.clk.off()
         self.not_clk.on()
 
-        self.pc.evaluate()
-        self.instruction_register.evaluate()
-        self.register_a.evaluate()
-        self.register_b.evaluate()
-        self.ram.evaluate()
-        self.alu.evaluate()
-        self.output.evaluate()
+        for _ in range(num_times):
+            self.eval_all()
 
     def disable_all(self):
         self.clk.off()
@@ -530,6 +532,7 @@ class Control:
 
     def fetch(self):
         # Enable counter output and address input
+        self.eval_all()
         self.counter_out.off()
         self.address_in.off()
         self.do_clock()
@@ -537,6 +540,7 @@ class Control:
         self.address_in.on()
 
         # Enable RAM out and instruction register in
+        self.eval_all()
         self.memory_out.off()
         self.instruction_in.off()
         self.do_clock()
@@ -544,9 +548,66 @@ class Control:
         self.instruction_in.on()
 
         # Increment program counter
+        self.eval_all()
         self.counter_enable.on()
-        self.do_clock()
+        self.do_clock(1)
         self.counter_enable.off()
+
+    def lda(self):
+        self.fetch()
+
+        # Copy instruction to address register. The lower part of the instruction is the address.
+        self.eval_all()
+        self.instruction_out.off()
+        self.address_in.off()
+        self.do_clock()
+        self.instruction_out.on()
+        self.address_in.on()
+
+        # Ram out, a register in
+        self.eval_all()
+        self.memory_out.off()
+        self.a_in.off()
+        self.do_clock()
+        self.memory_out.on()
+        self.a_in.on()
+
+    def add(self):
+        self.fetch()
+
+        # Copy instructions to address register again.
+        self.eval_all()
+        self.instruction_out.off()
+        self.address_in.off()
+        self.do_clock()
+        self.instruction_out.on()
+        self.address_in.on()
+
+        # Ram out, b register in
+        self.eval_all()
+        self.memory_out.off()
+        self.b_in.off()
+        self.do_clock()
+        self.memory_out.on()
+        self.b_in.on()
+
+        # Sum out, a register in
+        self.eval_all()
+        self.result_out.off()
+        self.a_in.off()
+        self.do_clock(1)
+        self.a_in.on()
+        self.result_out.on()
+
+    def out(self):
+        self.fetch()
+
+        # A register out, output register in
+        self.a_out.off()
+        self.output_enable.on()
+        self.do_clock()
+        self.a_out.on()
+        self.output_enable.off()
 
 
     def __init__(self):

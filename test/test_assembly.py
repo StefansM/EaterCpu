@@ -165,7 +165,7 @@ def test_read_write_ram(ram_harness: RamTestHarness):
     clock_ram(ram_harness)
 
     # Disable ram input, clear bus, enable ram output, load data into bus
-    ram_harness.address_in.voltage.value = False
+    ram_harness.address_in.voltage.value = True
     ram_harness.ram_out.voltage.value = False
     ram_harness.ram_in.voltage.value = False
     ram_harness.bus.pull_to([None] * 8)
@@ -352,11 +352,17 @@ def test_alu_can_add(
 
 def test_control_runs():
     control = eater.assembly.Control()
-    control.ram.fiddle(0, 0x55)
-    control.ram.fiddle(1, 0x55)
+
+    lda = 0b0000 << 4
+    add = 0b0001 << 4
+
+    control.ram.fiddle(0, lda | 14)
+    control.ram.fiddle(1, add | 15)
 
     control.ram.fiddle(14, 1)
     control.ram.fiddle(15, 2)
 
-    control.fetch()
+    control.lda()
+    control.add()
+    control.out()
     print()

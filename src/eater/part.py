@@ -520,6 +520,11 @@ class FourBitDRegister(PoweredPart):
     def evaluate(self):
         super().evaluate()
 
+        # # We only react on the rising edge, so keep track of the clock state.
+        # last_clock = self._last_clock
+        clock = self.CLK.state
+        # self._last_clock = clock
+
         # If either gate control pin is high, output is enabled.
         if self.N.state or self.M.state:
             for _, out_pin, vs in self.lines:
@@ -536,11 +541,9 @@ class FourBitDRegister(PoweredPart):
             return
 
         # On a rising edge, latch in the data bits.
-        clock = self.CLK.state
-        if clock and not self._last_clock:
+        if clock: # and not last_clock:
             self._state = [d.state for d, _, _ in self.lines]
             self._set_outputs()
-            self._last_clock = clock
 
     def _set_outputs(self):
         for (_, q, vs), data_bit in zip(self.lines, self._state):
